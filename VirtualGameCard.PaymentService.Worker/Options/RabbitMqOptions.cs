@@ -2,6 +2,7 @@ namespace VirtualGameCard.PaymentService.Worker.Options;
 
 public sealed class RabbitMqOptions
 {
+    public string? Uri { get; init; }
     public string HostName { get; init; } = "localhost";
     public int Port { get; init; } = 5672;
     public string UserName { get; init; } = "guest";

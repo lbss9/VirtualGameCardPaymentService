@@ -1,0 +1,22 @@
+# Render Background Workers do not support the free instance type.
+# Use this file only if you intentionally want to create a paid worker.
+# You must provide RabbitMq__Uri with an internet-accessible RabbitMQ URL,
+# such as a CloudAMQP AMQP/AMQPS connection string.
+services:
+  - type: worker
+    name: virtualgamecard-payment-service
+    runtime: docker
+    plan: starter
+    region: oregon
+    autoDeploy: true
+    envVars:
+      - key: DOTNET_ENVIRONMENT
+        value: Production
+      - key: RabbitMq__Uri
+        sync: false
+      - key: RabbitMq__Exchange
+        value: virtualgamecard.payments
+      - key: RabbitMq__PaymentRequestedQueue
+        value: payments.requested
+      - key: RabbitMq__PaymentRequestedRoutingKey
+        value: payment.requested

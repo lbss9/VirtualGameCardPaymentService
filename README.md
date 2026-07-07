@@ -44,6 +44,20 @@ Painel do RabbitMQ:
 dotnet run --project VirtualGameCard.PaymentService.Worker
 ```
 
+## Deploy
+
+O serviço é um **Background Worker**. No Render, esse tipo de serviço não usa
+porta HTTP pública e precisa de um RabbitMQ acessível pela internet.
+
+Para produção, configure:
+
+```txt
+RabbitMq__Uri=amqps://...
+```
+
+Você pode usar CloudAMQP/LavinMQ/RabbitMQ gerenciado. O `docker-compose.yml`
+deste repositório é apenas para desenvolvimento local.
+
 ## Observação
 
 Este projeto ainda é uma fundação. Os arquivos `.cs` de contratos, consumers,

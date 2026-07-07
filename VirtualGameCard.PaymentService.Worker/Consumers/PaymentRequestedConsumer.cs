@@ -17,13 +17,7 @@ public sealed class PaymentRequestedConsumer(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var factory = new ConnectionFactory
-        {
-            HostName = _options.HostName,
-            Port = _options.Port,
-            UserName = _options.UserName,
-            Password = _options.Password,
-        };
+        var factory = CreateConnectionFactory();
 
         await using var connection = await factory.CreateConnectionAsync(stoppingToken);
 
@@ -140,6 +134,22 @@ public sealed class PaymentRequestedConsumer(
         );
 
         await Task.Delay(Timeout.Infinite, stoppingToken);
+    }
+
+    private ConnectionFactory CreateConnectionFactory()
+    {
+        if (!string.IsNullOrWhiteSpace(_options.Uri))
+        {
+            return new ConnectionFactory { Uri = new Uri(_options.Uri) };
+        }
+
+        return new ConnectionFactory
+        {
+            HostName = _options.HostName,
+            Port = _options.Port,
+            UserName = _options.UserName,
+            Password = _options.Password,
+        };
     }
 
     private static async Task SimulatePaymentProcessingAsync(
