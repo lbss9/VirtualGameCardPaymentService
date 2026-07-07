@@ -20,7 +20,7 @@ VirtualGameCard API
 SQS: vgc-payment-requested
    ↓
 Payment Service
-   ↓ espera 1 minuto
+   ↓ espera 30 segundos
    ↓ envia PaymentApproved
 SQS: vgc-payment-approved
    ↓
@@ -102,10 +102,10 @@ public sealed record PaymentApprovedMessage(
 
 ## ⏱️ Simulação de pagamento
 
-Por padrão, o processamento demora **60 segundos**:
+Por padrão, o processamento demora **30 segundos**:
 
 ```txt
-Sqs__PaymentSimulationDelaySeconds=60
+Sqs__PaymentSimulationDelaySeconds=30
 ```
 
 Isso simula um provedor de pagamento externo levando tempo para confirmar uma
