@@ -33,7 +33,10 @@ public sealed class PaymentRequestedConsumer(
 
         using var sqs = CreateSqsClient();
 
-        logger.LogInformation("PaymentService escutando SQS: {QueueUrl}", _options.PaymentRequestedQueueUrl);
+        logger.LogInformation(
+            "PaymentService escutando SQS: {QueueUrl}",
+            _options.PaymentRequestedQueueUrl
+        );
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -137,7 +140,10 @@ public sealed class PaymentRequestedConsumer(
     }
 
     private async Task SimulatePaymentProcessingAsync(CancellationToken cancellationToken) =>
-        await Task.Delay(TimeSpan.FromSeconds(_options.PaymentSimulationDelaySeconds), cancellationToken);
+        await Task.Delay(
+            TimeSpan.FromSeconds(_options.PaymentSimulationDelaySeconds),
+            cancellationToken
+        );
 
     private Task DeleteMessageAsync(
         IAmazonSQS sqs,
