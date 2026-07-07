@@ -1,12 +1,14 @@
 using VirtualGameCard.PaymentService.Worker.Consumers;
 using VirtualGameCard.PaymentService.Worker.Options;
 
-var builder = Host.CreateApplicationBuilder(args);
+var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.Configure<RabbitMqOptions>(builder.Configuration.GetSection("RabbitMq"));
+builder.Services.Configure<SqsOptions>(builder.Configuration.GetSection("Sqs"));
 
 builder.Services.AddHostedService<PaymentRequestedConsumer>();
 
-var host = builder.Build();
+var app = builder.Build();
 
-host.Run();
+app.MapGet("/healthz", () => Results.Ok(new { status = "ok", service = "payment-service" }));
+
+app.Run();

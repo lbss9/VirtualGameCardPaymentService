@@ -1,43 +1,45 @@
 # 🎮 VirtualGameCard Payment Service
 
-Microserviço de pagamentos do ecossistema **VirtualGameCard**, criado para
-processar compras de gift cards de forma assíncrona usando **RabbitMQ**.
+Microserviço de pagamentos do ecossistema **VirtualGameCard**, responsável por
+consumir pedidos de pagamento via **AWS SQS**, simular o processamento por 1
+minuto e publicar o evento de pagamento aprovado.
 
-> Este projeto é uma extensão separada do backend principal
+> Extensão separada do backend principal:
 > [`VirtualGameCard`](https://github.com/lbss9/VirtualGameCard).
 
 ---
 
 ## ✨ Objetivo
 
-O objetivo deste serviço é praticar uma arquitetura mais próxima do mercado,
-separando o fluxo de pagamento em um processo independente.
-
-Em vez do backend principal processar tudo diretamente, ele cria uma compra
-pendente e publica uma mensagem na fila. O Payment Service consome essa
-mensagem e executa o processamento do pagamento.
+Separar o fluxo de pagamento em um serviço independente, praticando uma
+arquitetura orientada a eventos com filas.
 
 ```txt
-Frontend
-   ↓
 VirtualGameCard API
-   ↓ cria compra Pending
-RabbitMQ
+   ↓ envia PaymentRequested
+SQS: vgc-payment-requested
    ↓
 Payment Service
-   ↓ processa pagamento
+   ↓ espera 1 minuto
+   ↓ envia PaymentApproved
+SQS: vgc-payment-approved
+   ↓
+VirtualGameCard API
+   ↓ marca compra como Approved
 ```
 
 ---
 
 ## 🧠 Conceitos praticados
 
-- Worker Service com .NET
-- RabbitMQ
-- Mensageria assíncrona
+- .NET Worker hospedado dentro de um Web Service
+- AWS SQS
+- Processamento assíncrono
 - Microserviço separado
-- Contratos compartilhados de mensagem
-- Idempotência via `IdempotencyKey`
+- Mensagens de integração
+- Idempotência com `IdempotencyKey`
+- DLQ
+- Long polling
 - Docker
 - Deploy preparado para Render
 - Configuração segura por variáveis de ambiente
@@ -49,19 +51,15 @@ Payment Service
 ```txt
 VirtualGameCardPaymentService/
 ├── VirtualGameCard.PaymentService.Contracts/
-│   ├── Messages/
-│   │   └── PaymentRequestedMessage.cs
-│   └── Queues/
-│       └── PaymentQueueNames.cs
+│   └── Messages/
+│       ├── PaymentRequestedMessage.cs
+│       └── PaymentApprovedMessage.cs
 ├── VirtualGameCard.PaymentService.Worker/
 │   ├── Consumers/
 │   │   └── PaymentRequestedConsumer.cs
 │   ├── Options/
-│   │   └── RabbitMqOptions.cs
-│   ├── Infrastructure/
-│   ├── Services/
+│   │   └── SqsOptions.cs
 │   └── Program.cs
-├── docker-compose.yml
 ├── Dockerfile
 ├── render.yaml.example
 └── README.md
@@ -69,9 +67,11 @@ VirtualGameCardPaymentService/
 
 ---
 
-## 📦 Mensagem consumida
+## 📦 Mensagens
 
-O serviço consome mensagens do tipo:
+### PaymentRequested
+
+Recebida da API principal:
 
 ```csharp
 public sealed record PaymentRequestedMessage(
@@ -85,74 +85,89 @@ public sealed record PaymentRequestedMessage(
 );
 ```
 
-A `IdempotencyKey` é importante porque mensagens podem ser entregues mais de
-uma vez em sistemas distribuídos. Hoje ela já é validada e logada pelo worker.
-Em uma próxima etapa, o ideal é persistir os pagamentos processados para impedir
-reprocessamento definitivo.
+### PaymentApproved
+
+Publicada pelo Payment Service após a simulação:
+
+```csharp
+public sealed record PaymentApprovedMessage(
+    Guid PurchaseId,
+    Guid PaymentId,
+    string IdempotencyKey,
+    DateTime ApprovedAtUtc
+);
+```
 
 ---
 
-## 🐇 RabbitMQ local
+## ⏱️ Simulação de pagamento
 
-Suba o RabbitMQ local:
+Por padrão, o processamento demora **60 segundos**:
+
+```txt
+Sqs__PaymentSimulationDelaySeconds=60
+```
+
+Isso simula um provedor de pagamento externo levando tempo para confirmar uma
+transação.
+
+---
+
+## ☁️ Filas AWS SQS
+
+Filas usadas:
+
+```txt
+vgc-payment-requested
+vgc-payment-requested-dlq
+vgc-payment-approved
+vgc-payment-approved-dlq
+```
+
+Configurações aplicadas:
+
+- long polling: `20s`
+- visibility timeout: `180s`
+- DLQ após `5` tentativas
+
+---
+
+## ▶️ Rodar localmente
+
+Antes, garanta que o AWS CLI está autenticado e com região:
 
 ```bash
-docker compose up -d
+aws sts get-caller-identity
+aws configure get region
 ```
 
-Painel de gerenciamento:
-
-```txt
-http://localhost:15672
-```
-
-Credenciais locais:
-
-```txt
-Usuário: guest
-Senha: guest
-```
-
-Essas credenciais são apenas para desenvolvimento local.
-
----
-
-## ▶️ Rodar o worker localmente
+Depois:
 
 ```bash
 dotnet run --project VirtualGameCard.PaymentService.Worker
 ```
 
-Se estiver tudo certo, o log deve mostrar algo parecido com:
+Health check local:
 
 ```txt
-PaymentService escutando fila payments.requested.
+http://localhost:5000/healthz
 ```
 
 ---
 
 ## ⚙️ Variáveis de ambiente
 
-Configurações suportadas:
-
 | Variável | Uso | Sensível |
 | --- | --- | --- |
-| `RabbitMq__Uri` | Connection string completa AMQP/AMQPS | Sim |
-| `RabbitMq__HostName` | Host local ou privado do RabbitMQ | Não necessariamente |
-| `RabbitMq__Port` | Porta RabbitMQ, normalmente `5672` | Não |
-| `RabbitMq__UserName` | Usuário RabbitMQ | Sim |
-| `RabbitMq__Password` | Senha RabbitMQ | Sim |
-| `RabbitMq__Exchange` | Exchange usada pelo domínio de pagamentos | Não |
-| `RabbitMq__PaymentRequestedQueue` | Fila de pagamento solicitado | Não |
-| `RabbitMq__PaymentRequestedRoutingKey` | Routing key da mensagem | Não |
+| `Sqs__Enabled` | Liga/desliga o consumo SQS | Não |
+| `Sqs__Region` | Região AWS | Não |
+| `Sqs__PaymentRequestedQueueUrl` | URL da fila de pedidos | Não |
+| `Sqs__PaymentApprovedQueueUrl` | URL da fila de aprovações | Não |
+| `Sqs__PaymentSimulationDelaySeconds` | Delay da simulação | Não |
+| `AWS_ACCESS_KEY_ID` | Access key do IAM user | Sim |
+| `AWS_SECRET_ACCESS_KEY` | Secret key do IAM user | Sim |
 
-Em produção, prefira:
-
-```txt
-RabbitMq__Uri=amqps://...
-```
-
-E configure essa variável diretamente no painel do provedor, nunca no código.
+Nunca coloque credenciais AWS no repositório.
 
 ---
 
@@ -160,21 +175,20 @@ E configure essa variável diretamente no painel do provedor, nunca no código.
 
 Este repositório não deve conter:
 
-- connection string real do RabbitMQ;
-- senha de banco;
+- access key AWS;
+- secret key AWS;
 - token do Render;
 - token do GitHub;
+- senha de banco;
 - segredo JWT;
-- webhook secret;
 - qualquer credencial de produção.
 
-No Render, mantenha segredos como `sync: false` no Blueprint ou configure
-diretamente pelo Dashboard.
-
-Exemplo seguro:
+No Render, use env vars secretas:
 
 ```yaml
-- key: RabbitMq__Uri
+- key: AWS_ACCESS_KEY_ID
+  sync: false
+- key: AWS_SECRET_ACCESS_KEY
   sync: false
 ```
 
@@ -182,36 +196,22 @@ Exemplo seguro:
 
 ## 🚀 Deploy no Render
 
-Este serviço é um **Background Worker**.
+Este projeto roda como **Web Service free** com um background consumer interno.
 
-Importante:
+Por quê?
 
-- Worker não expõe URL pública.
-- Worker precisa de um RabbitMQ acessível pela internet.
-- O RabbitMQ local do Docker não funciona no Render.
-- Background Workers no Render podem exigir plano pago.
+- Render Background Worker não tem plano free.
+- Web Service free permite health check.
+- O worker roda enquanto o serviço está acordado.
 
-Antes de subir, crie um RabbitMQ online, por exemplo:
+Atenção: serviços free podem dormir quando inativos. Para produção real, use um
+worker pago ou outro host de workers.
 
-- CloudAMQP
-- LavinMQ gerenciado
-- RabbitMQ em outro provedor
-
-Depois configure no Render:
-
-```txt
-DOTNET_ENVIRONMENT=Production
-RabbitMq__Uri=amqps://...
-RabbitMq__Exchange=virtualgamecard.payments
-RabbitMq__PaymentRequestedQueue=payments.requested
-RabbitMq__PaymentRequestedRoutingKey=payment.requested
-```
-
-Use o arquivo [render.yaml.example](./render.yaml.example) como base.
+Use [render.yaml.example](./render.yaml.example) como base.
 
 ---
 
-## 🐳 Build Docker local
+## 🐳 Build Docker
 
 ```bash
 docker build -t virtualgamecard-payment-service:local .
@@ -219,24 +219,21 @@ docker build -t virtualgamecard-payment-service:local .
 
 ---
 
-## 🧪 Validação rápida
+## 🧪 Validação
 
 ```bash
 dotnet build
-docker compose config --quiet
 ```
 
 ---
 
 ## 🗺️ Próximos passos
 
+- Adicionar banco próprio do Payment Service.
 - Persistir pagamentos processados.
-- Criar tabela `ProcessedPayments`.
-- Garantir idempotência real no Payment Service.
-- Publicar evento de pagamento aprovado.
-- Fazer a API principal consumir confirmação do pagamento.
-- Adicionar testes de integração com RabbitMQ.
-- Adicionar observabilidade com Prometheus/Grafana.
+- Garantir idempotência real no banco do serviço.
+- Adicionar testes de integração com SQS.
+- Adicionar métricas Prometheus/Grafana.
 
 ---
 

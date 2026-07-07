@@ -2,7 +2,6 @@ namespace VirtualGameCard.PaymentService.Contracts.Queues;
 
 public static class PaymentQueueNames
 {
-    public const string Exchange = "virtualgamecard.payments";
-    public const string PaymentRequestedQueue = "payments.requested";
-    public const string PaymentRequestedRoutingKey = "payment.requested";
+    public const string PaymentRequested = "vgc-payment-requested";
+    public const string PaymentApproved = "vgc-payment-approved";
 }
