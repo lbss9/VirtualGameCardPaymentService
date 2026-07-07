@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="VirtualGameCard.PaymentService.Contracts/VirtualGameCard.PaymentService.Contracts.csproj" />
+  <Project Path="VirtualGameCard.PaymentService.Worker/VirtualGameCard.PaymentService.Worker.csproj" />
+</Solution>
