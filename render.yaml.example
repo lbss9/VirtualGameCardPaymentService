@@ -1,5 +1,5 @@
-# This service runs as a free Render Web Service with a background SQS consumer.
-# Free web services may sleep when inactive; for production, use a paid worker.
+# Legacy/free fallback only. Production payment processing now runs on AWS Lambda.
+# Keep Sqs__Enabled=false to avoid competing with the Lambda SQS consumer.
 services:
   - type: web
     name: virtualgamecard-payment-service
@@ -12,7 +12,7 @@ services:
       - key: DOTNET_ENVIRONMENT
         value: Production
       - key: Sqs__Enabled
-        value: true
+        value: false
       - key: Sqs__Region
         value: us-east-2
       - key: Sqs__PaymentRequestedQueueUrl

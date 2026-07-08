@@ -1,0 +1,8 @@
+{
+  "configuration": "Release",
+  "framework": "net8.0",
+  "function-runtime": "dotnet8",
+  "function-memory-size": 128,
+  "function-timeout": 30,
+  "function-handler": "VirtualGameCard.PaymentService.Lambda::VirtualGameCard.PaymentService.Lambda.Function::FunctionHandler"
+}

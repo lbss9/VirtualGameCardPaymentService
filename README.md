@@ -1,47 +1,43 @@
 # 🎮 VirtualGameCard Payment Service
 
-Microserviço de pagamentos do ecossistema **VirtualGameCard**, responsável por
-consumir pedidos de pagamento via **AWS SQS**, simular o processamento por 1
-minuto e publicar o evento de pagamento aprovado.
+Microserviço de pagamentos do ecossistema **VirtualGameCard**. Hoje ele roda em
+**AWS Lambda**, consome eventos da fila **AWS SQS** e publica a aprovação do
+pagamento de volta para o backend principal.
 
 > Extensão separada do backend principal:
 > [`VirtualGameCard`](https://github.com/lbss9/VirtualGameCard).
 
 ---
 
-## ✨ Objetivo
-
-Separar o fluxo de pagamento em um serviço independente, praticando uma
-arquitetura orientada a eventos com filas.
+## ✨ Fluxo atual
 
 ```txt
 VirtualGameCard API
-   ↓ envia PaymentRequested
+   ↓ publica PaymentRequested
 SQS: vgc-payment-requested
-   ↓
-Payment Service
-   ↓ espera 30 segundos
-   ↓ envia PaymentApproved
+   ↓ delay nativo de 30s
+AWS Lambda: vgc-payment-processor
+   ↓ publica PaymentApproved
 SQS: vgc-payment-approved
    ↓
 VirtualGameCard API
-   ↓ marca compra como Approved
+   ↓ marca compra como Approved e libera o código
 ```
+
+O delay de 30 segundos fica na própria SQS, não em `Thread.Sleep`/`Task.Delay`.
+Assim a Lambda só executa quando a mensagem já pode ser processada.
 
 ---
 
 ## 🧠 Conceitos praticados
 
-- .NET Worker hospedado dentro de um Web Service
-- AWS SQS
-- Processamento assíncrono
-- Microserviço separado
-- Mensagens de integração
+- AWS Lambda com runtime `.NET 8`
+- AWS SQS como mensageria assíncrona
+- Event source mapping SQS → Lambda
+- DLQ para mensagens com falha
 - Idempotência com `IdempotencyKey`
-- DLQ
-- Long polling
-- Docker
-- Deploy preparado para Render
+- Separação por contratos de integração
+- Worker legado para testes locais/fallback
 - Configuração segura por variáveis de ambiente
 
 ---
@@ -54,14 +50,11 @@ VirtualGameCardPaymentService/
 │   └── Messages/
 │       ├── PaymentRequestedMessage.cs
 │       └── PaymentApprovedMessage.cs
+├── VirtualGameCard.PaymentService.Lambda/
+│   ├── Function.cs
+│   └── aws-lambda-tools-defaults.json
 ├── VirtualGameCard.PaymentService.Worker/
-│   ├── Consumers/
-│   │   └── PaymentRequestedConsumer.cs
-│   ├── Options/
-│   │   └── SqsOptions.cs
-│   └── Program.cs
-├── Dockerfile
-├── render.yaml.example
+│   └── Worker legado/local
 └── README.md
 ```
 
@@ -87,7 +80,7 @@ public sealed record PaymentRequestedMessage(
 
 ### PaymentApproved
 
-Publicada pelo Payment Service após a simulação:
+Publicada pela Lambda:
 
 ```csharp
 public sealed record PaymentApprovedMessage(
@@ -100,74 +93,101 @@ public sealed record PaymentApprovedMessage(
 
 ---
 
-## ⏱️ Simulação de pagamento
+## ⏱️ Delay da simulação
 
-Por padrão, o processamento demora **30 segundos**:
-
-```txt
-Sqs__PaymentSimulationDelaySeconds=30
-```
-
-Isso simula um provedor de pagamento externo levando tempo para confirmar uma
-transação.
-
----
-
-## ☁️ Filas AWS SQS
-
-Filas usadas:
+O tempo de espera é feito pela fila:
 
 ```txt
 vgc-payment-requested
-vgc-payment-requested-dlq
-vgc-payment-approved
-vgc-payment-approved-dlq
+DelaySeconds = 30
 ```
 
-Configurações aplicadas:
-
-- long polling: `20s`
-- visibility timeout: `180s`
-- DLQ após `5` tentativas
+Isso evita deixar a Lambda executando parada por 30 segundos.
 
 ---
 
-## ▶️ Rodar localmente
+## ☁️ Recursos AWS
 
-Antes, garanta que o AWS CLI está autenticado e com região:
-
-```bash
-aws sts get-caller-identity
-aws configure get region
-```
-
-Depois:
-
-```bash
-dotnet run --project VirtualGameCard.PaymentService.Worker
-```
-
-Health check local:
+Recursos usados:
 
 ```txt
-http://localhost:5000/healthz
+Lambda: vgc-payment-processor
+Role:   vgc-payment-processor-lambda-role
+
+SQS: vgc-payment-requested
+SQS: vgc-payment-requested-dlq
+SQS: vgc-payment-approved
+SQS: vgc-payment-approved-dlq
 ```
+
+Configuração validada:
+
+- `vgc-payment-requested`: `DelaySeconds=30`
+- event source mapping: `vgc-payment-requested` → `vgc-payment-processor`
+- batch size: `5`
+- partial batch failure: `ReportBatchItemFailures`
 
 ---
 
-## ⚙️ Variáveis de ambiente
+## ⚙️ Variáveis de ambiente da Lambda
 
 | Variável | Uso | Sensível |
 | --- | --- | --- |
-| `Sqs__Enabled` | Liga/desliga o consumo SQS | Não |
-| `Sqs__Region` | Região AWS | Não |
-| `Sqs__PaymentRequestedQueueUrl` | URL da fila de pedidos | Não |
-| `Sqs__PaymentApprovedQueueUrl` | URL da fila de aprovações | Não |
-| `Sqs__PaymentSimulationDelaySeconds` | Delay da simulação | Não |
-| `AWS_ACCESS_KEY_ID` | Access key do IAM user | Sim |
-| `AWS_SECRET_ACCESS_KEY` | Secret key do IAM user | Sim |
+| `PAYMENT_APPROVED_QUEUE_URL` | URL da fila `vgc-payment-approved` | Não |
 
-Nunca coloque credenciais AWS no repositório.
+Credenciais AWS não ficam no repositório. Em produção, a Lambda usa IAM Role.
+
+---
+
+## ▶️ Build local
+
+```bash
+dotnet build
+```
+
+Publicar pacote localmente:
+
+```bash
+dotnet publish VirtualGameCard.PaymentService.Lambda \
+  -c Release \
+  -f net8.0 \
+  -o ./publish/lambda
+```
+
+---
+
+## 🧪 Validação ponta a ponta
+
+Teste real executado:
+
+```txt
+POST /api/cards/purchase
+  → status inicial: pending
+
+SQS delay 30s
+  → Lambda publicou PaymentApproved
+
+GET /api/purchases
+GET /api/purchases/{id}
+  → status final: approved
+  → code disponível: true
+```
+
+---
+
+## 🧯 Sobre o Worker/Render legado
+
+O projeto ainda mantém `VirtualGameCard.PaymentService.Worker` como referência
+de aprendizado/local/fallback. Porém, o processamento principal em produção é
+feito por Lambda.
+
+Se usar o exemplo do Render, mantenha:
+
+```txt
+Sqs__Enabled=false
+```
+
+Isso evita consumidor duplicado competindo com a Lambda.
 
 ---
 
@@ -182,58 +202,6 @@ Este repositório não deve conter:
 - senha de banco;
 - segredo JWT;
 - qualquer credencial de produção.
-
-No Render, use env vars secretas:
-
-```yaml
-- key: AWS_ACCESS_KEY_ID
-  sync: false
-- key: AWS_SECRET_ACCESS_KEY
-  sync: false
-```
-
----
-
-## 🚀 Deploy no Render
-
-Este projeto roda como **Web Service free** com um background consumer interno.
-
-Por quê?
-
-- Render Background Worker não tem plano free.
-- Web Service free permite health check.
-- O worker roda enquanto o serviço está acordado.
-
-Atenção: serviços free podem dormir quando inativos. Para produção real, use um
-worker pago ou outro host de workers.
-
-Use [render.yaml.example](./render.yaml.example) como base.
-
----
-
-## 🐳 Build Docker
-
-```bash
-docker build -t virtualgamecard-payment-service:local .
-```
-
----
-
-## 🧪 Validação
-
-```bash
-dotnet build
-```
-
----
-
-## 🗺️ Próximos passos
-
-- Adicionar banco próprio do Payment Service.
-- Persistir pagamentos processados.
-- Garantir idempotência real no banco do serviço.
-- Adicionar testes de integração com SQS.
-- Adicionar métricas Prometheus/Grafana.
 
 ---
 
